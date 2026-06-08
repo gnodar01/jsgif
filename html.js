@@ -39,19 +39,45 @@ var bookmarklet = function() {
         }
     };
 
+    // Many hosts (GitHub among them) serve images from a different origin than
+    // the page and without CORS headers, so a direct XHR for the bytes is
+    // blocked by the same-origin policy. Where we can, fall back to a
+    // CORS-enabled equivalent: raw.githubusercontent.com sends
+    // Access-Control-Allow-Origin: *, so a github.com blob/raw page URL can be
+    // rewritten to it. (Issue/PR attachments served from
+    // *-user-images.githubusercontent.com send no CORS header and have no raw
+    // equivalent, so those still can't be fetched from a bookmarklet.)
+    var loadCandidates = function(url) {
+      var candidates = [url];
+      var m = url.match(/^https?:\/\/github\.com\/([^\/]+\/[^\/]+)\/(?:blob|raw)\/(.+)$/);
+      if (m) candidates.push('https://raw.githubusercontent.com/' + m[1] + '/' + m[2]);
+      return candidates;
+    };
+
     var doGet = function() {
-      var h = new XMLHttpRequest();
-      h.overrideMimeType('text/plain; charset=x-user-defined');
-      h.onload = function(e) {
-        //doLoadProgress(e);
-        // TODO: In IE, might be able to use h.responseBody instead of overrideMimeType.
-        stream = new Stream(h.responseText);
-        setTimeout(doParse, 0);
+      var urls = loadCandidates(gif.src);
+
+      var attempt = function(i) {
+        if (i >= urls.length) { doLoadError('xhr'); return; }
+        var h = new XMLHttpRequest();
+        h.overrideMimeType('text/plain; charset=x-user-defined');
+        h.onload = function(e) {
+          //doLoadProgress(e);
+          // TODO: In IE, might be able to use h.responseBody instead of overrideMimeType.
+          // A cross-origin block surfaces as onerror, but an HTTP error (e.g. a
+          // 403 on an expired signed URL) arrives as onload -- treat a non-2xx
+          // status as a failure so we fall through to the next candidate.
+          if (h.status && (h.status < 200 || h.status >= 300)) { attempt(i + 1); return; }
+          stream = new Stream(h.responseText);
+          setTimeout(doParse, 0);
+        };
+        h.onprogress = doLoadProgress;
+        h.onerror = function() { attempt(i + 1); };
+        h.open('GET', urls[i], true);
+        h.send();
       };
-      h.onprogress = doLoadProgress;
-      h.onerror = function() { doLoadError('xhr'); };
-      h.open('GET', gif.src, true);
-      h.send();
+
+      attempt(0);
     };
 
     var doText = function(text) {
@@ -552,7 +578,9 @@ var bookmarklet = function() {
 
   var imgs = to_a(document.getElementsByTagName('img'));
   var gifs = imgs.filter(function(img) {
-    return img.src.slice(-4).toLowerCase() === '.gif';
+    // Strip any query string (e.g. GitHub's "...gif?jwt=...") before checking
+    // the extension, otherwise signed/proxied URLs never match.
+    return img.src.split('?')[0].slice(-4).toLowerCase() === '.gif';
     // This is a very cheap plastic imitation of checking the MIME type -- I've
     // seen GIFs with no extension (or, even worse, ending in .jpg). I can't
     // see a good way of figuring out if an image is a GIF, though, so this
