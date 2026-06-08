@@ -1,1 +1,21 @@
 JavaScript GIF parser and player bookmarklet. See <http://slbkbs.org/jsgif>.
+
+## Build
+
+Use podman to build on an image with the build toolchain.
+
+### Make image
+
+```
+podman build -t jsgif-build -f Containerfile . 2>&1
+```
+
+### Run build in image
+
+```
+podman run --rm -v "$PWD":/src:Z jsgif-build > bookmarklet.txt 2> build.err; echo "exit=$?"; echo "--- stderr ---"; cat build.err; echo "--- output size ---"; wc -c bookmarklet.txt; echo "--- head ---"; cut -c1-120 bookmarklet.txt
+```
+
+### Make bookmarklet
+
+Successful output will be in bookmarklet.txt. Copy and paste it into a new browser bookmark in the url/location field.
